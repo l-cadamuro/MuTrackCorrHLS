@@ -33,11 +33,11 @@ puts "@@@ C/RTL COSYM"
 cosim_design -trace_level all
 # export_design -format ip_catalog  -vendor "cern-cms"
 
-## cannot make the part below work
-puts "@@@ EXPORTING WAVEFORM"
+## cannot make the part below work, although trying with two different commands
+## use the GUI (view waveform after cosim_design)
+# puts "@@@ EXPORTING WAVEFORM"
 # write_hw_ila_data my_hw_ila_data_file.zip [upload_hw_ila_data hw_ila_1]
-
-log_wave -r /
+# log_wave -r /
 
 # exit Vivado HLS
 exit
