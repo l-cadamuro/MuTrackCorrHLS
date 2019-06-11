@@ -1,9 +1,14 @@
 #include <cstdio>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <string>
+#include <stdexcept>
 #include "src/correlator.h"
 #include "ap_int.h"
 #include "ap_fixed.h"
 
-#define NTEST 20
+#define NTEST 1000
 
 void inject_simple_idx (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> *in_bram, unsigned int nbx)
 {
@@ -57,9 +62,147 @@ void inject_debugdata_correlator (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> *in
     }
 }
 
+// reads a line of 64 chunks of 32 bits from a file and converts them to the write buffer
+// each chunk must be in hex format
+// Assuming that the word (1 line in the txt file) is written as: [chunk63] [chunk62] [chunk61] ... [chunk1] [chunk0], then
+//
+// reverse = false: ==> the word is written to the buffer in the same way you can "read" it from the txt file
+// buffer [0] = [chunk0]
+// buffer [1] = [chunk1]
+// ...
+// buffer [63] = [chunk63]
+//
+// reverse = true: ==> the word chunks order is inverted w.r.t the original one in the txt file
+// buffer [0] = [chunk63]
+// buffer [1] = [chunk62]
+// ...
+// buffer [63] = [chunk0]
+//
+// NB!! the input txt file is read from left to right, so the incoming arrival order is [chunk63] > [chunk62] > ... > [chunk1] [chunk0]
+void inject_load_from_file (
+        ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> *in_bram, unsigned int nbx,
+        std::string input_file_name, bool reverse=false)
+{
+
+  // first clean up all elements of in_bram
+  for (size_t i = 0; i < nbx; ++i)
+    in_bram[i] = 0;
+
+  std::fstream input_file(input_file_name.c_str());
+
+  // each line contains 64 buckets of 32 bits, encoded in hex format
+  std::string line;
+  int nlines = 0;
+  while (std::getline(input_file, line))
+  {
+      std::istringstream iss(line);
+      int nwords = 0;
+      uint32_t wtemp;
+      uint32_t words[64];
+      ap_uint<2048> tmp_word; // patterns are for a 2048 word - fill one, then trim down to the real workd size
+
+      while (iss >> std::hex >> wtemp)
+      {
+        // buffer size is limited to 64 -> if this is already exceeded, throw error message
+        if (nwords >= 64){
+          std::ostringstream strnlines;
+          strnlines << nlines;
+          throw std::runtime_error(std::string("Error in parsing the patter input file at line: ") + strnlines.str());
+        }
+
+        if (reverse)
+          words[nwords] = wtemp;
+        else
+          words[63-nwords] = wtemp;
+        
+        ++nwords;
+      }
+      std::cout << "........ wpatt_load_from_file : from line " << nlines << " read " << nwords << " words" << std::endl;
+      
+      // now copy the read line to the ap input buffer
+      // unsigned int offset = nlines*64;
+      for (size_t i = 0; i < 64; ++i){
+        tmp_word.range((i+1)*32-1, 32*i) = words[i];
+        // in_bram[nlines]
+        // write_buf[i + offset] = words[i];
+      }
+
+      // now trim the input word to the actual size
+      in_bram[nlines] = tmp_word.range(TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU -1, 0);
+
+      // and set the start and reset bits for this word
+      //set_start_reset_bits_tobuffer (write_buf, nlines);
+
+      // update the line count
+      ++nlines;
+
+      // this was the last element in the in_bram array
+      if (nlines >= nbx)
+        break;
+  }
+
+  std::cout << "... wpatt_load_from_file : read " << nlines << " input patterns" << std::endl;
+}
+
+void dump_output_to_file (ap_uint<TKMU_W_SIZE*N_TKMU> *out_bram, unsigned int nbx, std::string output_file_name)
+{
+    FILE * pFile = fopen (output_file_name.c_str(),"w");
+    fprintf (pFile, "iEv itkmu pt theta thetasign phi charge\n");
+    for (size_t ibx = 0; ibx < nbx; ++ibx)
+    {
+        for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+        {
+            ap_uint<TKMU_W_SIZE> tkmu = out_bram[ibx].range(TKMU_W_SIZE*(itkmu+1)-1, TKMU_W_SIZE*itkmu);
+            fprintf (pFile, "%5i %2i %10u %10u %1u %10u %1u\n",
+                ibx, itkmu,
+                get_tkmu_pt(tkmu).to_uint64(),
+                get_tkmu_theta(tkmu).to_uint64(),
+                get_tkmu_theta_sign(tkmu).to_uint64(),
+                get_tkmu_phi(tkmu).to_uint64(),
+                get_tkmu_charge(tkmu).to_uint64());
+        }
+    }
+    fclose (pFile);
+}
+
+
+
+/////// ancillary functions to print to screen an ap::uint value
+template <size_t N>
+std::string ap_uint_to_string (ap_uint<N> val, bool pad_space = true)
+{
+    size_t left = N;
+    size_t offset = 0;
+    std::string result = "";
+    std::string sep = pad_space ? " " : "";
+    // the ones I cannot fit in uint64
+    while (left > 64)
+    {
+
+        std::string out_string;
+        std::stringstream ss;
+        ss << std::hex << std::setfill('0') << std::setw(64/4) << val.range(63+offset, 0+offset).to_uint64();
+        out_string = ss.str();
+        result = out_string + sep + result;
+        // std::cout << " ..... " << 63+offset << " " << 0+offset << " ,,, " << out_string << std::endl;
+        left -= 64;
+        offset += 64;
+    }
+
+    // the final chiunk
+    std::string out_string;
+    std::stringstream ss;
+    size_t tot_s = N - offset;
+    ss << std::hex << std::setfill('0') << std::setw(tot_s/4) << val.range(N-1, 0+offset).to_uint64();
+    out_string = ss.str();
+    result = out_string + sep + result;
+
+    return result;
+}
 
 int main()
 {
+
     const unsigned int nbx = NTEST;
 
     // my input BRAM
@@ -98,10 +241,19 @@ int main()
     }
     */
 
-    inject_debugdata_correlator(in_bram, nbx);
+    // PU 0 I/O
+    // std::string in_pattern_filename = "/home/lcadamur/CorrPCIeGit/MuTrackCorrMTF7Utils/patterns/test_patterns_PU0.txt";
+    // std::string out_tkmu_filename   = "/home/lcadamur/MuTrackCorrHLS/MuTrackCorrHLS/corr_output_PU0.txt";
+
+    // PU 200 I/O
+    std::string in_pattern_filename = "/home/lcadamur/CorrPCIeGit/MuTrackCorrMTF7Utils/patterns/test_patterns.txt";
+    std::string out_tkmu_filename   = "/home/lcadamur/MuTrackCorrHLS/MuTrackCorrHLS/corr_output.txt";
+
+
+    // inject_debugdata_correlator(in_bram, nbx);
     // inject_simple_idx(in_bram, nbx);
     // inject_null(in_bram, nbx);
-    
+    inject_load_from_file (in_bram, nbx, in_pattern_filename.c_str());
 
     /*
     // simple one => just inject the number to compare with the c++ code
@@ -234,18 +386,74 @@ int main()
             spy_trk1,  spy_trk2,
             spy_mu1,   spy_mu2,
             spy_tkmu1, spy_tkmu2);
-        printf(">>> checking BX %2i/%3i :: mu1 = %13x, mu2 = %13x, trk1 = %13x, trk2 = %13x, tkmu1 = %13x, tkmu2 = %13x, (outw = %llx)\n",
-        itest, NTEST,
-        spy_mu1.to_int(),   spy_mu2.to_int(),
-        spy_trk1.to_int(),  spy_trk2.to_int(),
-        spy_tkmu1.to_int(), spy_tkmu2.to_int(),
-        out_bram[itest].to_uint64() // will trim down to the 64 lsb, but OK for debugging
-        );
-        // printf(">>> checking BX %i/%i :: IN = %16llx,      OUT = %16llx\n",
+        if (itest < 10)
+        {
+            printf(">>> checking BX %2i/%3i :: mu1 = %13x, mu2 = %13x, trk1 = %13x, trk2 = %13x, tkmu1 = %13x, tkmu2 = %13x, (outw = %llx)\n",
+            itest, NTEST,
+            spy_mu1.to_int(),   spy_mu2.to_int(),
+            spy_trk1.to_int(),  spy_trk2.to_int(),
+            spy_tkmu1.to_int(), spy_tkmu2.to_int(),
+            out_bram[itest].to_uint64() // will trim down to the 64 lsb, but OK for debugging
+            );
+            printf("     .... mu1   .... pt = %10u, theta = (%1u) %10u, phi = %10u, charge = %1u, word = %s\n",
+                get_mu_pt(spy_mu1).to_uint64(),
+                get_mu_theta_sign(spy_mu1).to_uint(), 
+                get_mu_theta(spy_mu1).to_uint64(),
+                get_mu_phi(spy_mu1).to_uint64(),
+                get_mu_charge(spy_mu1).to_uint64(),
+                ap_uint_to_string<MU_W_SIZE>(spy_mu1).c_str());
+            printf("     .... mu2   .... pt = %10u, theta = (%1u) %10u, phi = %10u, charge = %1u, word = %s\n",
+                get_mu_pt(spy_mu2).to_uint64(),
+                get_mu_theta_sign(spy_mu2).to_uint(),
+                get_mu_theta(spy_mu2).to_uint64(),
+                get_mu_phi(spy_mu2).to_uint64(),
+                get_mu_charge(spy_mu2).to_uint64(),
+                ap_uint_to_string<MU_W_SIZE>(spy_mu2).c_str());
+            printf("     .... trk1  .... pt = %10u, theta = (%1u) %10u, phi = %10u, charge = %1u, chisq = %10u, nstubs = %10u, word = %s\n",
+                get_trk_pt(spy_trk1).to_uint64(),
+                get_trk_theta_sign(spy_trk1).to_uint(),
+                get_trk_theta(spy_trk1).to_uint64(),
+                get_trk_phi(spy_trk1).to_uint64(),
+                get_trk_charge(spy_trk1).to_uint64(),
+                get_trk_chisq(spy_trk1).to_uint64(),
+                get_trk_nstubs(spy_trk1).to_uint64(),
+                ap_uint_to_string<TRK_W_SIZE>(spy_trk1).c_str());
+            printf("     .... trk2  .... pt = %10u, theta = (%1u) %10u, phi = %10u, charge = %1u, chisq = %10u, nstubs = %10u, word = %s\n",
+                get_trk_pt(spy_trk2).to_uint64(),
+                get_trk_theta_sign(spy_trk2).to_uint(),
+                get_trk_theta(spy_trk2).to_uint64(),
+                get_trk_phi(spy_trk2).to_uint64(),
+                get_trk_charge(spy_trk2).to_uint64(),
+                get_trk_chisq(spy_trk2).to_uint64(),
+                get_trk_nstubs(spy_trk2).to_uint64(),
+                ap_uint_to_string<TRK_W_SIZE>(spy_trk2).c_str());
+            printf("     .... tkmu1 .... pt = %10u, theta = %10u, phi = %10u, word = %s\n",
+                get_tkmu_pt(spy_tkmu1).to_uint64(),
+                get_tkmu_theta(spy_tkmu1).to_uint64(),
+                get_tkmu_phi(spy_tkmu1).to_uint64(),
+                ap_uint_to_string<TKMU_W_SIZE>(spy_tkmu1).c_str());
+            printf("     .... tkmu2 .... pt = %10u, theta = %10u, phi = %10u, word = %s\n",
+                get_tkmu_pt(spy_tkmu2).to_uint64(),
+                get_tkmu_theta(spy_tkmu2).to_uint64(),
+                get_tkmu_phi(spy_tkmu2).to_uint64(),
+                ap_uint_to_string<TKMU_W_SIZE>(spy_tkmu2).c_str());
+        }
+        else if (itest % 100 == 0)
+            printf(">>> checking BX %2i/%3i :: mu1 = %13x, mu2 = %13x, trk1 = %13x, trk2 = %13x, tkmu1 = %13x, tkmu2 = %13x, (outw = %llx)\n",
+            itest, NTEST,
+            spy_mu1.to_int(),   spy_mu2.to_int(),
+            spy_trk1.to_int(),  spy_trk2.to_int(),
+            spy_tkmu1.to_int(), spy_tkmu2.to_int(),
+            out_bram[itest].to_uint64() // will trim down to the 64 lsb, but OK for debugging
+            );        // printf(">>> checking BX %i/%i :: IN = %16llx,      OUT = %16llx\n",
         // itest, NTEST,
         // in_bram[itest].to_uint64(), out_bram[itest].to_uint64()
         // );
-
     }
 
+    printf("... dumping result to file\n");
+    // note: normally file woudl go under "projCorrelator/solution1/csim/build/"
+    // so give here an abs path
+    dump_output_to_file (out_bram, NTEST, out_tkmu_filename.c_str());
+    printf("... done\n");
 }

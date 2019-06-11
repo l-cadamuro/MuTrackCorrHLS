@@ -8,6 +8,7 @@ open_project -reset projCorrelator
 # set_top is_in_boundaries_th
 set_top correlator_one
 add_files src/dataformats.cpp
+add_files src/matching_LUTs.cpp
 add_files src/algo_parts.cpp
 # add_files src/playground.cpp
 add_files src/correlator.cpp

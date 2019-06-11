@@ -6,13 +6,10 @@ puts "@@@ Opening project"
 #### in this way, Vivado will execute it as the entry point (imagine it as the 'main' of the code)
 open_project -reset projPassThrough
 
-
-
-
-
 # set_top is_in_boundaries_th
 set_top passthrough
 add_files src/dataformats.cpp
+add_files src/matching_LUTs.cpp
 add_files src/algo_parts.cpp
 # add_files src/playground.cpp
 add_files src/correlator.cpp

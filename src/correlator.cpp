@@ -72,6 +72,17 @@ void correlator_one (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint
     ap_uint<TRK_W_SIZE> tracks[N_TRK]; // input to corr
     ap_uint<TKMU_W_SIZE> tkmus[N_TKMU]; // output to corr
 
+    // output array must be clean
+    for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+    {
+        #pragma HLS unroll
+        tkmus[itkmu] = 0x0; // FIXME: shoudl this be done at the testbench level instead?
+    }
+
+    #pragma HLS ARRAY_PARTITION variable=muons  complete
+    #pragma HLS ARRAY_PARTITION variable=tracks complete
+    #pragma HLS ARRAY_PARTITION variable=tkmus  complete
+
     for (size_t imu = 0; imu < N_MU; ++imu)
     {
         #pragma HLS unroll
@@ -100,10 +111,17 @@ void correlator_one (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint
 
     // prepare the sorting parameter criteria
     ap_uint<TRK_PT_W_SIZE> sorting_par[N_TKMU];
-    for (size_t i = 0; i < N_TKMU; ++i){
+    #pragma HLS ARRAY_PARTITION variable=sorting_par complete
+
+    // ap_uint<TRK_PT_W_SIZE> sorting_par_4debug[N_TKMU];
+    // #pragma HLS ARRAY_PARTITION variable=sorting_par_4debug complete
+
+    
+    for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu){
         #pragma HLS unroll
-        sorting_par[N_TKMU] = 0;
+        sorting_par[itkmu] = 0;
     }
+
 
     // make a pipeline on the input tracks
     for (size_t itrk = 0; itrk < N_TRK; ++itrk)
@@ -112,11 +130,12 @@ void correlator_one (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint
 
         // build the matching LUT address
         ap_uint<4> addr_th;
-        ap_uint<4> addr_pt;
+        ap_uint<9> addr_pt;
 
-        ap_int<TRK_THETA_W_SIZE> abs_trk_theta = get_trk_theta(tracks[itrk]);
-        if (abs_trk_theta < 0)
-            abs_trk_theta *= -1;
+        ap_uint<TRK_THETA_W_SIZE> abs_trk_theta = get_trk_theta(tracks[itrk]);
+        // ap_int<TRK_THETA_W_SIZE> abs_trk_theta = get_trk_theta(tracks[itrk]);
+        // if (abs_trk_theta < 0)
+        //     abs_trk_theta *= -1;
 
         // FIXME; these boundaries are just to write the code
         // need to change with the actual bin boundaries
@@ -133,14 +152,46 @@ void correlator_one (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint
         else if (abs_trk_theta < 26) addr_th = 8;
         else                         addr_th = 9;
 
-        addr_pt = get_trk_pt(tracks[itrk]) << 1; // since I express pt in 0.5 steps this is easy, just pt*2
+        addr_pt = get_trk_pt(tracks[itrk]); // since I express pt in 0.5 steps this is easy, the address is the pt
 
         ap_uint<10> this_phi_low_bound    = mluts.phi_low_bounds    [addr_th][addr_pt];
         ap_uint<10> this_phi_high_bound   = mluts.phi_high_bounds   [addr_th][addr_pt];
         ap_uint<10> this_theta_low_bound  = mluts.theta_low_bounds  [addr_th][addr_pt];
         ap_uint<10> this_theta_high_bound = mluts.theta_high_bounds [addr_th][addr_pt];
 
-        // make the correlation - fully parallel
+        // if (get_trk_pt(tracks[itrk]) > 20 && get_trk_pt(tracks[itrk]) < 100)
+        // {
+        //     printf("=== debugging the LUT lookup in the 20 - 100 hw pt gap ===\n");
+        //     printf(" -- trk theta = %10u  trk pt = %10u \n", get_trk_theta(tracks[itrk]).to_uint64(), get_trk_pt(tracks[itrk]).to_uint64());
+        //     printf(" -- addr theta = %10u addr pt = %10u \n", addr_th.to_uint64(), addr_pt.to_uint64());
+        //     printf(" -- philow   = %10u, phiup   = %10u\n",
+        //         this_phi_low_bound.to_uint64(),
+        //         this_phi_high_bound.to_uint64());
+        //     printf(" -- thetalow = %10u, thetaup = %10u\n",
+        //         this_theta_low_bound.to_uint64(),
+        //         this_theta_high_bound.to_uint64());
+        // }
+
+
+        // #ifndef __SYNTHESIS__
+        // printf("=== debugging the main LUT lookup ===\n");
+        // printf(" -- trk theta = %10u  trk pt = %10u \n", get_trk_theta(tracks[itrk]).to_uint64(), get_trk_pt(tracks[itrk]).to_uint64());
+        // printf(" -- addr theta = %10u addr pt = %10u \n", addr_th.to_uint64(), addr_pt.to_uint64());
+        // printf(" -- philow   = %10u, phiup   = %10u\n",
+        //     this_phi_low_bound.to_uint64(),
+        //     this_phi_high_bound.to_uint64());
+        // printf(" -- thetalow = %10u, thetaup = %10u\n",
+        //     this_theta_low_bound.to_uint64(),
+        //     this_theta_high_bound.to_uint64());
+        // printf(" >>> dump of the full LUT [0] [0-10]\n");
+        // for (size_t il = 0; il < 10; ++il)
+        //     printf("%i .. %10u\n", il, mluts.phi_low_bounds[0][il].to_uint64());
+        // printf(" >>> dump of the full LUT [15] [0-10]\n");
+        // for (size_t il = 0; il < 10; ++il)
+        //     printf("%i .. %10u\n", il, mluts.phi_low_bounds[15][il].to_uint64());
+        // #endif
+
+        // // make the correlation - fully parallel
         for (size_t imu = 0; imu < N_MU; ++imu)
         {
             #pragma HLS unroll
@@ -156,6 +207,23 @@ void correlator_one (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint
             );
         }
 
+        // for (size_t imu = 0; imu < N_MU; ++imu)
+        // {
+        //     #pragma HLS unroll
+        //     build_one_tkmu(
+        //         muons[imu], tracks[itrk],
+        //         sorting_par[imu],
+        //         this_phi_low_bound,
+        //         this_phi_high_bound,
+        //         this_theta_low_bound,
+        //         this_theta_high_bound,
+        //         tkmus[imu],
+        //         tkmus[imu], sorting_par_4debug[imu]
+        //     );
+        // }
+
+
+
         /*
         build_one_tkmu(
             muons[0], tracks[itrk],
@@ -166,6 +234,17 @@ void correlator_one (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint
             this_theta_high_bound,
             tkmus[0],
             tkmus[0], sorting_par[0]
+        );
+
+        build_one_tkmu(
+            muons[1], tracks[itrk],
+            sorting_par[1],
+            this_phi_low_bound,
+            this_phi_high_bound,
+            this_theta_low_bound,
+            this_theta_high_bound,
+            tkmus[1],
+            tkmus[1], sorting_par[1]
         );
         */
     }
@@ -182,6 +261,14 @@ void correlator_one (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint
         #pragma HLS unroll
         out_info.range(TKMU_W_SIZE*(itkmu+1)-1, TKMU_W_SIZE*itkmu) = tkmus[itkmu];
     }
+
+    // // debug output -- this works
+    // for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+    // {
+    //     #pragma HLS unroll
+    //     out_info.range(TKMU_W_SIZE*(itkmu+1)-1, TKMU_W_SIZE*itkmu) = itkmu;
+    // }
+
 }
 
 
@@ -307,3 +394,86 @@ void correlator_one (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint
 //     */
     
 // }
+
+
+
+
+void passthrough (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint<TKMU_W_SIZE*N_TKMU> &out_info,
+    ap_uint<TRK_W_SIZE>  &spy_trk1,  ap_uint<TRK_W_SIZE>  &spy_trk2,
+    ap_uint<MU_W_SIZE>   &spy_mu1,   ap_uint<MU_W_SIZE>   &spy_mu2,
+    ap_uint<TKMU_W_SIZE> &spy_tkmu1, ap_uint<TKMU_W_SIZE> &spy_tkmu2)
+{
+    // unpack my input DF into the various muons
+    ap_uint<MU_W_SIZE> muons[N_MU]; // input to corr
+    ap_uint<TRK_W_SIZE> tracks[N_TRK]; // input to corr
+    ap_uint<TKMU_W_SIZE> tkmus[N_TKMU]; // output to corr
+
+    // output array must be clean
+    for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+    {
+        #pragma HLS unroll
+        tkmus[itkmu] = 0x0; // FIXME: shoudl this be done at the testbench level instead?
+    }
+
+    #pragma HLS ARRAY_PARTITION variable=muons  complete
+    #pragma HLS ARRAY_PARTITION variable=tracks complete
+    #pragma HLS ARRAY_PARTITION variable=tkmus  complete
+
+    for (size_t imu = 0; imu < N_MU; ++imu)
+    {
+        #pragma HLS unroll
+        muons[imu] = in_info.range(MU_W_SIZE*(imu+1)-1, MU_W_SIZE*imu);
+    }
+
+    for (size_t itrk = 0; itrk < N_TRK; ++itrk)
+    {
+        #pragma HLS unroll
+        tracks[itrk] = in_info.range(TRK_W_SIZE*(itrk+1)-1 + MU_W_SIZE*N_MU, TRK_W_SIZE*itrk + MU_W_SIZE*N_MU);
+    }
+
+    // attach spy signals
+    spy_mu1 = muons[0];
+    spy_mu2 = muons[1];
+    spy_trk1 = tracks[0];
+    spy_trk2 = tracks[1];
+
+    // copy the pt/eta/phi of the first N_TKMU tracks to the tkmus output
+    // NOTE: need to have N_TKMU <= N_TRK, but I am not checking array bounds here
+
+    // use a set of static registers to introduce one clk latency so that the logic gets clocked to have the same interface as the correlator
+    static ap_uint<TKMU_W_SIZE> registers_1 [N_TKMU];
+    static ap_uint<TKMU_W_SIZE> registers_2 [N_TKMU];
+
+    for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+    {
+        #pragma HLS unroll
+        // ref_to_tkmu_pt(tkmus[itkmu])    = get_trk_pt(tracks[itkmu]); // FIXME: here I am assuming the same bit width
+        // ref_to_tkmu_phi(tkmus[itkmu])   = get_trk_phi(tracks[itkmu]); // FIXME: here I am assuming the same bit width
+        // ref_to_tkmu_theta(tkmus[itkmu]) = get_trk_theta(tracks[itkmu]); // FIXME: here I am assuming the same bit width
+
+        ref_to_tkmu_pt(tkmus[itkmu])    = get_trk_pt(registers_2[itkmu]); // FIXME: here I am assuming the same bit width
+        ref_to_tkmu_phi(tkmus[itkmu])   = get_trk_phi(registers_2[itkmu]); // FIXME: here I am assuming the same bit width
+        ref_to_tkmu_theta(tkmus[itkmu]) = get_trk_theta(registers_2[itkmu]); // FIXME: here I am assuming the same bit width
+
+        registers_2[itkmu] = registers_1[itkmu];
+        registers_1[itkmu] = tracks[itkmu];
+
+
+    }
+
+
+    // ----------------------------
+
+    // attach spy signals
+    spy_tkmu1 = tkmus[0];
+    spy_tkmu2 = tkmus[1];
+
+    // repack the tkmus inside the single output word
+    for (size_t itkmu = 0; itkmu < N_MU; ++itkmu)
+    {
+        #pragma HLS unroll
+        out_info.range(TKMU_W_SIZE*(itkmu+1)-1, TKMU_W_SIZE*itkmu) = tkmus[itkmu];
+    }
+
+
+}
