@@ -7,8 +7,17 @@
 #include "src/correlator.h"
 #include "ap_int.h"
 #include "ap_fixed.h"
+#include "pattern_injection.h"
+
 
 #define NTEST 1000
+
+template <size_t MEMSIZE>
+void inject_dummy (ap_uint<MEMSIZE> *in_bram, unsigned int nbx)
+{
+    for (unsigned int ibx = 0; ibx < nbx; ++ibx)
+        in_bram[nbx] = ibx;
+}
 
 void inject_simple_idx (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> *in_bram, unsigned int nbx)
 {
@@ -207,6 +216,7 @@ int main()
 
     // my input BRAM
     ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_bram[nbx];
+    // ap_uint<TRK_W_SIZE*N_TRK*N_TRK_SECTORS + MU_W_SIZE*N_MU> in_bram_mult[nbx];
     // my output BRAM
     ap_uint<TKMU_W_SIZE*N_TKMU>                out_bram[nbx];
 
@@ -254,6 +264,7 @@ int main()
     // inject_simple_idx(in_bram, nbx);
     // inject_null(in_bram, nbx);
     inject_load_from_file (in_bram, nbx, in_pattern_filename.c_str());
+    // inject_dummy<TRK_W_SIZE*N_TRK*N_TRK_SECTORS + MU_W_SIZE*N_MU> (in_bram_mult, nbx);
 
     /*
     // simple one => just inject the number to compare with the c++ code
@@ -371,21 +382,25 @@ int main()
     */
 
     // now test the algo
-    ap_uint<TRK_W_SIZE>  spy_trk1;
-    ap_uint<TRK_W_SIZE>  spy_trk2;
+    ap_uint<TRK_W_SIZE>  spy_trk1 = 0xff;
+    ap_uint<TRK_W_SIZE>  spy_trk2 = 0xff;
 
-    ap_uint<MU_W_SIZE>   spy_mu1;
-    ap_uint<MU_W_SIZE>   spy_mu2;
+    ap_uint<MU_W_SIZE>   spy_mu1 = 0xff;
+    ap_uint<MU_W_SIZE>   spy_mu2 = 0xff;
 
-    ap_uint<TKMU_W_SIZE> spy_tkmu1;
-    ap_uint<TKMU_W_SIZE> spy_tkmu2;
+    ap_uint<TKMU_W_SIZE> spy_tkmu1 = 0xff;
+    ap_uint<TKMU_W_SIZE> spy_tkmu2 = 0xff;
 
     for (uint itest = 0; itest < NTEST; ++itest)
     {
-        correlator_one(in_bram[itest], out_bram[itest],
-            spy_trk1,  spy_trk2,
-            spy_mu1,   spy_mu2,
-            spy_tkmu1, spy_tkmu2);
+        // correlator_one(in_bram[itest], out_bram[itest],
+        //     spy_trk1,  spy_trk2,
+        //     spy_mu1,   spy_mu2,
+        //     spy_tkmu1, spy_tkmu2);
+
+        top_arr_correlator_one(in_bram[itest], out_bram[itest]);
+        // top_arr_correlator_mult(in_bram_mult[itest], out_bram[itest]);
+
         if (itest < 10)
         {
             printf(">>> checking BX %2i/%3i :: mu1 = %13x, mu2 = %13x, trk1 = %13x, trk2 = %13x, tkmu1 = %13x, tkmu2 = %13x, (outw = %llx)\n",

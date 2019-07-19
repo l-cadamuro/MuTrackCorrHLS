@@ -6,15 +6,19 @@ puts "@@@ Opening project"
 #### in this way, Vivado will execute it as the entry point (imagine it as the 'main' of the code)
 open_project -reset projCorrelator
 # set_top is_in_boundaries_th
-set_top correlator_one
+# set_top correlator_one
+# set_top top_arr_correlator_one
+set_top correlator_stream
+# set_top top_arr_correlator_mult
 add_files src/dataformats.cpp
 add_files src/matching_LUTs.cpp
+add_files src/matcher.cpp
 add_files src/algo_parts.cpp
 # add_files src/playground.cpp
 add_files src/correlator.cpp
 # add_files -tb random_tests.cpp
 # add_files -tb simple_algo_ref.cpp
-add_files -tb correlator_test.cpp
+add_files -tb correlator_test_stream.cpp
 
 puts "@@@ Opening solution"
 # reset the solution
@@ -39,11 +43,11 @@ puts "@@@ C/RTL COSYM"
 cosim_design -trace_level all
 export_design -format ip_catalog  -vendor "cern-cms"
 
-# # ## cannot make the part below work, although trying with two different commands
-# # ## use the GUI (view waveform after cosim_design)
-# # # puts "@@@ EXPORTING WAVEFORM"
-# # # write_hw_ila_data my_hw_ila_data_file.zip [upload_hw_ila_data hw_ila_1]
-# # # log_wave -r /
+## cannot make the part below work, although trying with two different commands
+## use the GUI (view waveform after cosim_design)
+# puts "@@@ EXPORTING WAVEFORM"
+# write_hw_ila_data my_hw_ila_data_file.zip [upload_hw_ila_data hw_ila_1]
+# log_wave -r /
 
-# # # exit Vivado HLS
+# exit Vivado HLS
 exit

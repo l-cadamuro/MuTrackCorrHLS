@@ -57,6 +57,20 @@ ap_uint<1> get_tkmu_charge(ap_uint<TKMU_W_SIZE> word){
 }
 
 ///////////////////////////
+// packers
+
+ap_uint<TKMU_W_SIZE> build_tkmu_word(tkmu_t tkmu)
+{
+    ap_uint<TKMU_W_SIZE> word;
+    word.range(TKMU_PT_W_SIZE-1, 0) = tkmu.pt;
+    word.range(TKMU_PT_W_SIZE + TKMU_PHI_W_SIZE -1, TKMU_PT_W_SIZE) = tkmu.phi;
+    word.range(TKMU_PT_W_SIZE + TKMU_PHI_W_SIZE + TKMU_THETA_W_SIZE -1, TKMU_PT_W_SIZE + TKMU_PHI_W_SIZE) = tkmu.theta;
+    word.range(TKMU_PT_W_SIZE + TKMU_PHI_W_SIZE + TKMU_THETA_W_SIZE, TKMU_PT_W_SIZE + TKMU_PHI_W_SIZE + TKMU_THETA_W_SIZE) = tkmu.theta_sign;
+    word.range(TKMU_PT_W_SIZE + TKMU_PHI_W_SIZE + TKMU_THETA_W_SIZE +1, TKMU_PT_W_SIZE + TKMU_PHI_W_SIZE + TKMU_THETA_W_SIZE +1) = tkmu.charge;
+    return word;
+}
+
+///////////////////////////
 // ref getters
 
 ap_range_ref<TKMU_W_SIZE, false> ref_to_tkmu_pt(ap_uint<TKMU_W_SIZE>& word)
