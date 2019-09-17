@@ -54,7 +54,7 @@
 #define MW_LUT_ANGLE_W_SIZE 11 // number of bits used for the matching LUTs boundaries. FIXME: now only works if == theta_w_size!!
 
 // for the interface with the BRAM
-// #define MTF7_BRAM_SIZE 2048
+#define MTF7_BRAM_SIZE 2048
 
 // -----------------------------------------------------------
 // the structures defining input objects

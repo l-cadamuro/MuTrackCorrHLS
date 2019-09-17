@@ -9,7 +9,7 @@
 #include "ap_fixed.h"
 
 #define NTEST 1000
-#define MTF7_BRAM_SIZE 2048
+// #define MTF7_BRAM_SIZE 2048
 
 namespace patt_inj
 {
@@ -80,7 +80,7 @@ namespace patt_inj
             
             ++nwords;
           }
-          std::cout << "........ wpatt_load_from_file : from line " << nlines << " read " << nwords << " words" << std::endl;
+          // std::cout << "........ wpatt_load_from_file : from line " << nlines << " read " << nwords << " words" << std::endl;
           
           // now copy the read line to the ap input buffer
           // unsigned int offset = nlines*64;
@@ -179,130 +179,179 @@ int main()
 
         // convert the BRAM input into hls_stream data
 
-        // first word: the muon data
-        muon_t muons[N_MU];
+        // // first word: the muon data
+        // muon_t muons[N_MU];
 
-        // the destination array
-        tkmu_t tkmus[N_TKMU];
+        // // the destination array
+        // tkmu_t tkmus[N_TKMU];
 
-        size_t in_offset = itest * (1 + N_TRK_PER_SEC); // every event receives 1 line for muons + N_TRK_PER_SEC lines for tracks
+        // size_t in_offset = itest * (1 + N_TRK_PER_SEC); // every event receives 1 line for muons + N_TRK_PER_SEC lines for tracks
 
-        // printf("%i --> offset %i\n", itest, in_offset);
+        // // printf("%i --> offset %i\n", itest, in_offset);
         
-        // convert the word into a muon
-        ap_uint<MTF7_BRAM_SIZE> all_mu_word = in_bram[0 + in_offset];
-        for (size_t imu = 0; imu < N_MU; ++imu)
-        {
-          ap_uint<MU_W_SIZE> mu_word = all_mu_word.range((imu+1)*MU_W_SIZE-1, imu*MU_W_SIZE);
-          muons[imu].pt         = get_mu_pt(mu_word);
-          muons[imu].theta      = get_mu_theta(mu_word);
-          muons[imu].theta_sign = get_mu_theta_sign(mu_word);
-          muons[imu].phi        = get_mu_phi(mu_word);
-        }
-
+        // // convert the word into a muon
+        // ap_uint<MTF7_BRAM_SIZE> all_mu_word = in_bram[0 + in_offset];
         // for (size_t imu = 0; imu < N_MU; ++imu)
         // {
-        //   std::cout << " ... mu " << imu
-        //             << " pt = " << muons[imu].pt.to_uint64()
-        //             << " theta = " << muons[imu].theta.to_uint64()
-        //             << " theta_sign = " << muons[imu].theta_sign.to_uint64()
-        //             << " phi = " << muons[imu].phi.to_uint64() << std::endl;
+        //   ap_uint<MU_W_SIZE> mu_word = all_mu_word.range((imu+1)*MU_W_SIZE-1, imu*MU_W_SIZE);
+        //   muons[imu].pt         = get_mu_pt(mu_word);
+        //   muons[imu].theta      = get_mu_theta(mu_word);
+        //   muons[imu].theta_sign = get_mu_theta_sign(mu_word);
+        //   muons[imu].phi        = get_mu_phi(mu_word);
         // }
 
-        // second and following word: these are the tracks
-        // each memory address carries one incoming set of track for a clk cycle
-        // NOTE: does not necessarily has to be one BRAM address / bx
-        // at the testbench level, multiple addresses can be combined if more bits are needed
+        // // for (size_t imu = 0; imu < N_MU; ++imu)
+        // // {
+        // //   std::cout << " ... mu " << imu
+        // //             << " pt = " << muons[imu].pt.to_uint64()
+        // //             << " theta = " << muons[imu].theta.to_uint64()
+        // //             << " theta_sign = " << muons[imu].theta_sign.to_uint64()
+        // //             << " phi = " << muons[imu].phi.to_uint64() << std::endl;
+        // // }
 
-        // printf("NUMBER OF TRACK: %i\n", N_TRK);
-        hls::stream<track_t> tracks[N_TRK_SECTORS]  = {
-            {"SECTOR_1"},
-            {"SECTOR_2"},
-            {"SECTOR_3"},
-            {"SECTOR_4"},
-            {"SECTOR_5"},
-            {"SECTOR_6"},
-            {"SECTOR_7"},
-            {"SECTOR_8"},
-            {"SECTOR_9"}
-        };
+        // // second and following word: these are the tracks
+        // // each memory address carries one incoming set of track for a clk cycle
+        // // NOTE: does not necessarily has to be one BRAM address / bx
+        // // at the testbench level, multiple addresses can be combined if more bits are needed
 
-        // first round: inject ths muons using empty track streasm
-        std::cout << ".... injecting muons" << std::endl;
-        correlator_stream(muons, tracks, tkmus);
+        // // printf("NUMBER OF TRACK: %i\n", N_TRK);
+        // hls::stream<track_t> tracks[N_TRK_SECTORS]  = {
+        //     {"SECTOR_1"},
+        //     {"SECTOR_2"},
+        //     {"SECTOR_3"},
+        //     {"SECTOR_4"},
+        //     {"SECTOR_5"},
+        //     {"SECTOR_6"},
+        //     {"SECTOR_7"},
+        //     {"SECTOR_8"},
+        //     {"SECTOR_9"}
+        // };
 
-        // second round: write data on the input track stream
-        for (size_t itrk = 0; itrk < N_TRK_PER_SEC; ++itrk)
-        {
-            // std::cout << " ---------- track TMT number " << itrk << " ------------" << std::endl;
+        // // first round: inject ths muons using empty track streasm
+        // std::cout << ".... injecting muons" << std::endl;
+        // correlator_stream(muons, tracks, tkmus);
 
-            // for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
-            // {
-            //     // PATCH: set properties of tracks by hand
-            //     // to be read from the input pattern file
-            //     track_t this_trk;
-            //     this_trk.pt    = 100*itrk + isec;
-            //     this_trk.theta = 100*itrk + isec + 1;
-            //     this_trk.phi   = 100*itrk + isec + 2;
-            //     this_trk.nstubs = 5;
-            //     this_trk.chisq  = 30;
-            //     tracks[isec].write(this_trk);
-            // }
+        // // second round: write data on the input track stream
+        // for (size_t itrk = 0; itrk < N_TRK_PER_SEC; ++itrk)
+        // {
+        //     // std::cout << " ---------- track TMT number " << itrk << " ------------" << std::endl;
 
-            ap_uint<MTF7_BRAM_SIZE> all_trk_word = in_bram[1 + itrk + in_offset];
-            for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
-            {
-              ap_uint<TRK_W_SIZE> trk_word = all_trk_word.range((isec+1)*TRK_W_SIZE-1, isec*TRK_W_SIZE);
-              track_t this_trk;
-              this_trk.pt        = get_trk_pt(trk_word);
-              this_trk.theta     = get_trk_theta(trk_word);
-              this_trk.theta_sign = get_trk_theta_sign(trk_word);
-              this_trk.phi       = get_trk_phi(trk_word);
-              this_trk.charge    = get_trk_charge(trk_word);
-              this_trk.chisq     = get_trk_chisq(trk_word);
-              this_trk.nstubs    = get_trk_nstubs(trk_word);
+        //     // for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
+        //     // {
+        //     //     // PATCH: set properties of tracks by hand
+        //     //     // to be read from the input pattern file
+        //     //     track_t this_trk;
+        //     //     this_trk.pt    = 100*itrk + isec;
+        //     //     this_trk.theta = 100*itrk + isec + 1;
+        //     //     this_trk.phi   = 100*itrk + isec + 2;
+        //     //     this_trk.nstubs = 5;
+        //     //     this_trk.chisq  = 30;
+        //     //     tracks[isec].write(this_trk);
+        //     // }
 
-              // std::cout << " ... tracks - sector = " << isec << " tmt = " << itrk
-              //           << " pt = "         << this_trk.pt.to_uint64()
-              //           << " theta = "      << this_trk.theta.to_uint64()
-              //           << " theta_sign = " << this_trk.theta_sign.to_uint64()
-              //           << " phi = "        << this_trk.phi.to_uint64()
-              //           << " charge = "     << this_trk.charge.to_uint64()
-              //           << " chisq = "      << this_trk.chisq.to_uint64()
-              //           << " nstubs = "     << this_trk.nstubs.to_uint64()
-              //           << std::endl;
+        //     ap_uint<MTF7_BRAM_SIZE> all_trk_word = in_bram[1 + itrk + in_offset];
+        //     for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
+        //     {
+        //       ap_uint<TRK_W_SIZE> trk_word = all_trk_word.range((isec+1)*TRK_W_SIZE-1, isec*TRK_W_SIZE);
+        //       track_t this_trk;
+        //       this_trk.pt        = get_trk_pt(trk_word);
+        //       this_trk.theta     = get_trk_theta(trk_word);
+        //       this_trk.theta_sign = get_trk_theta_sign(trk_word);
+        //       this_trk.phi       = get_trk_phi(trk_word);
+        //       this_trk.charge    = get_trk_charge(trk_word);
+        //       this_trk.chisq     = get_trk_chisq(trk_word);
+        //       this_trk.nstubs    = get_trk_nstubs(trk_word);
 
-              tracks[isec].write(this_trk);
-            }
+        //       // std::cout << " ... tracks - sector = " << isec << " tmt = " << itrk
+        //       //           << " pt = "         << this_trk.pt.to_uint64()
+        //       //           << " theta = "      << this_trk.theta.to_uint64()
+        //       //           << " theta_sign = " << this_trk.theta_sign.to_uint64()
+        //       //           << " phi = "        << this_trk.phi.to_uint64()
+        //       //           << " charge = "     << this_trk.charge.to_uint64()
+        //       //           << " chisq = "      << this_trk.chisq.to_uint64()
+        //       //           << " nstubs = "     << this_trk.nstubs.to_uint64()
+        //       //           << std::endl;
 
-            // std::cout << ".... running correlator on a new set of tracks" << std::endl;
-            correlator_stream(muons, tracks, tkmus);
-        }
+        //       tracks[isec].write(this_trk);
+        //     }
 
-        for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
-        {
-          std::cout << " ... tkmu " << itkmu
-                    << " pt = " << tkmus[itkmu].pt.to_uint64()
-                    << " theta = " << tkmus[itkmu].theta.to_uint64()
-                    << " theta_sign = " << tkmus[itkmu].theta_sign.to_uint64()
-                    << " phi = " << tkmus[itkmu].phi.to_uint64() << std::endl;
-        }
+        //     // std::cout << ".... running correlator on a new set of tracks" << std::endl;
+        //     correlator_stream(muons, tracks, tkmus);
+        // }
+
+        // for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+        // {
+        //   std::cout << " ... tkmu " << itkmu
+        //             << " pt = " << tkmus[itkmu].pt.to_uint64()
+        //             << " theta = " << tkmus[itkmu].theta.to_uint64()
+        //             << " theta_sign = " << tkmus[itkmu].theta_sign.to_uint64()
+        //             << " phi = " << tkmus[itkmu].phi.to_uint64() << std::endl;
+        // }
 
 
-        /// repack the output in out_bram and write it to file in output
-        ap_uint<MTF7_BRAM_SIZE> out_info;
-        for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
-        {
-          // #pragma HLS unroll
-          out_info.range(TKMU_W_SIZE*(itkmu+1)-1, TKMU_W_SIZE*itkmu) = build_tkmu_word(tkmus[itkmu]);
-        }
+        // /// repack the output in out_bram and write it to file in output
+        // ap_uint<MTF7_BRAM_SIZE> out_info;
+        // for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+        // {
+        //   // #pragma HLS unroll
+        //   out_info.range(TKMU_W_SIZE*(itkmu+1)-1, TKMU_W_SIZE*itkmu) = build_tkmu_word(tkmus[itkmu]);
+        // }
         
-        out_bram[itest] = out_info;
-        printf("... dumping result to file\n");
-        // note: normally file woudl go under "projCorrelator/solution1/csim/build/"
-        // so give here an abs path
-        dump_output_to_file<MTF7_BRAM_SIZE> (out_bram, NTEST, out_tkmu_filename.c_str());
-        printf("... done\n");
+        // out_bram[itest] = out_info;
 
+        ap_uint<1> out_valid = 0;
+        ap_uint<MTF7_BRAM_SIZE> in_info = 0x0;
+        ap_uint<MTF7_BRAM_SIZE> out_info = 0x0;
+        size_t in_offset = itest * (1 + N_TRK_PER_SEC); // every event receives 1 line for muons + N_TRK_PER_SEC lines for tracks
+        for (size_t iline = 0; iline < 1 + N_TRK_PER_SEC; ++iline)
+        {
+
+
+          in_info = in_bram[iline + in_offset];
+          ap_uint<1> is_muons = (iline == 0 ? 1 : 0);
+          // BRAM_to_corr (in_info, is_muons, out_info, out_valid);
+
+          // std::cout << " ------ line nr " << iline
+          //           << " in_info_last : " << std::hex << in_info.range(63,0).to_uint64()
+          //           << " is_muons : " << is_muons.to_uint()
+          //           << " out_info_last : " << std::hex << out_info.range(63,0).to_uint64()
+          //           << " out_valid : " << out_valid 
+          //           << std::endl;
+          // std::cout << "ciao " << iline << " " << (unsigned int) in_info.range(31,0) << std::endl;
+          // printf("%0x\n", in_info.range(31,0).to_uint64() );
+
+          BRAM_to_corr_nostream (in_info, is_muons, out_info, out_valid);
+
+          // std::cout << " .... post exec ... ------ line nr " << iline
+          //           << " in_info_last : " << std::hex << in_info.range(63,0).to_uint64()
+          //           << " is_muons : " << is_muons.to_uint()
+          //           << " out_info_last : " << std::hex << out_info.range(63,0).to_uint64()
+          //           << " out_valid : " << out_valid 
+          //           << std::endl;
+
+
+          // std::cout << " -------------- out_valid : " << out_valid.to_uint() << " out_info_last : " << std::hex << out_info.range(63,0).to_uint64() << std::endl;
+
+          if (out_valid) // out_valid is raised while transmitting the tracks from the next event because of latency
+            out_bram[itest] = out_info;
+        }
+
+        // std::cout << "AFTER RUNNING THE CORRELATOR out_valid = " << out_valid.to_uint() << " last part of word : " << out_info.range(63,0).to_uint64() << std::endl;
+
+        // if (out_valid)
+        // // if (true)
+        // {
+        //   out_bram[itest] = out_info;
+        // }
     }
+
+    // for (size_t ib = 0; ib < NTEST; ++ib)
+    //   std::cout << "cross check " << out_bram[ib].range(63,0).to_uint64() << std::endl;
+
+    printf("... dumping result to file\n");
+    // note: normally file woudl go under "projCorrelator/solution1/csim/build/"
+    // so give here an abs path
+    dump_output_to_file<MTF7_BRAM_SIZE> (out_bram, NTEST, out_tkmu_filename.c_str());
+    printf("... done\n");
+
 }

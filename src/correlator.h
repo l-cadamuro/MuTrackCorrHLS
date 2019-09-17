@@ -53,13 +53,15 @@ void arr_correlator_mult (
 void correlator_stream (
     muon_t                in_muons  [N_MU],          // inputs : all the muons ready at the same time
     hls::stream<track_t>  in_tracks [N_TRK_SECTORS], // inputs : one track incoming per sector as a stream
-    tkmu_t                out_tkmu  [N_TKMU]);        // output TkMus
+    tkmu_t                out_tkmu  [N_TKMU],        // output TkMus
+    ap_uint<1>            &corr_done);        
     // ap_uint<1>            new_bx);                   // the signal to declare a new incoming event
 
 // the interface between the BRAM and the correlator
 // the input is a full MTF7 BRAM line that contains either muons or tracks
 // the output is the packed version of the tkmus
-// void BRAM_to_corr (ap_uint<MTF7_BRAM_SIZE> in_info, ap_uint<MTF7_BRAM_SIZE> &out_info);
+// in_muons = 1 -> in_info contains muons; in_muons = 0 -> in_info contains tracks
+void BRAM_to_corr (ap_uint<MTF7_BRAM_SIZE> in_info, ap_uint<1> in_muons, ap_uint<MTF7_BRAM_SIZE> &out_info, ap_uint<1> &out_valid);
 
 // // handles one track arriving from each sector
 // // spies are attached to the first track sector
@@ -67,6 +69,16 @@ void correlator_stream (
 //     ap_uint<TRK_W_SIZE>  &spy_trk1,  ap_uint<TRK_W_SIZE>  &spy_trk2,
 //     ap_uint<MU_W_SIZE>   &spy_mu1,   ap_uint<MU_W_SIZE>   &spy_mu2,
 //     ap_uint<TKMU_W_SIZE> &spy_tkmu1, ap_uint<TKMU_W_SIZE> &spy_tkmu2);
+
+
+void BRAM_to_corr_nostream (ap_uint<MTF7_BRAM_SIZE> in_info, ap_uint<1> in_muons, ap_uint<MTF7_BRAM_SIZE> &out_info, ap_uint<1> &out_valid);
+void correlator_nostream (
+    muon_t                in_muons  [N_MU],          // inputs : all the muons ready at the same time
+    track_t               in_tracks [N_TRK_SECTORS], // inputs : one track incoming per sector as a stream
+    ap_uint<1>            sending_trk,               // sending tracks -> start the correlator
+    tkmu_t                out_tkmu  [N_TKMU],        // output TkMus
+    ap_uint<1>            &corr_done);        
+
 
 // just copy N_MU tracks to tkmu output collection - same interface as correlator_one for easy debug
 void passthrough (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint<TKMU_W_SIZE*N_TKMU> &out_info,

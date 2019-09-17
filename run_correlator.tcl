@@ -8,7 +8,9 @@ open_project -reset projCorrelator
 # set_top is_in_boundaries_th
 # set_top correlator_one
 # set_top top_arr_correlator_one
-set_top correlator_stream
+# set_top correlator_stream
+# set_top BRAM_to_corr
+set_top BRAM_to_corr_nostream
 # set_top top_arr_correlator_mult
 add_files src/dataformats.cpp
 add_files src/matching_LUTs.cpp
@@ -41,7 +43,7 @@ csynth_design
 
 puts "@@@ C/RTL COSYM"
 cosim_design -trace_level all
-export_design -format ip_catalog  -vendor "cern-cms"
+# export_design -format ip_catalog  -vendor "cern-cms"
 
 ## cannot make the part below work, although trying with two different commands
 ## use the GUI (view waveform after cosim_design)

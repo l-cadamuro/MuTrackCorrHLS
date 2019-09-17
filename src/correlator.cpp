@@ -744,7 +744,8 @@ void correlator_mult (ap_uint<TRK_W_SIZE*N_TRK*N_TRK_SECTORS + MU_W_SIZE*N_MU> i
 void correlator_stream (
     muon_t                in_muons  [N_MU],          // inputs : all the muons ready at the same time
     hls::stream<track_t>  in_tracks [N_TRK_SECTORS], // inputs : one track incoming per sector as a stream
-    tkmu_t                out_tkmu  [N_TKMU])        // output TkMus
+    tkmu_t                out_tkmu  [N_TKMU],        // output TkMus
+    ap_uint<1>            &corr_done)        
 {
     // ----------------------------------------
     // -- definitions of blocks --
@@ -763,7 +764,8 @@ void correlator_stream (
     #pragma HLS ARRAY_PARTITION variable=mluts  complete
 
     // and output buffer decoupled from the matcher - so that the data is persistent
-    static tkmu_t out_buffer [N_TKMU];
+    static tkmu_t     out_buffer [N_TKMU];
+    static ap_uint<1> corr_done_buffer;
     #pragma HLS ARRAY_PARTITION variable=out_buffer  complete
     // connect output to the buffers
     for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
@@ -771,6 +773,7 @@ void correlator_stream (
         #pragma HLS unroll
         out_tkmu[itkmu] = out_buffer[itkmu];
     }
+    corr_done = corr_done_buffer;
 
     // ----------------------------------------
     // -- track processing --
@@ -833,6 +836,8 @@ void correlator_stream (
                 );
             }
         }
+
+        corr_done_buffer = 0;
     }
 
     // ----------------------------------------
@@ -853,6 +858,8 @@ void correlator_stream (
         {
             #pragma HLS unroll
             out_buffer[itkmu] = match_units[itkmu].tkmu_;
+            corr_done_buffer = 1;
+
         }
 
         // reinitialize everything
@@ -863,6 +870,145 @@ void correlator_stream (
         }
     }
 }
+
+
+
+void correlator_nostream (
+    muon_t                in_muons  [N_MU],          // inputs : all the muons ready at the same time
+    track_t               in_tracks [N_TRK_SECTORS], // inputs : one track incoming per sector as a stream
+    ap_uint<1>            sending_trk,               // sending tracks -> start the correlator
+    tkmu_t                out_tkmu  [N_TKMU],        // output TkMus
+    ap_uint<1>            &corr_done)        
+{
+    // ----------------------------------------
+    // -- definitions of blocks --
+
+    #pragma HLS data_pack variable=in_muons
+    #pragma HLS data_pack variable=in_tracks
+    #pragma HLS data_pack variable=out_tkmu
+
+    // define the matching units. They must be persistent outside the function -> static
+    static matcher match_units[N_TRK_SECTORS][N_TKMU];
+    // independent units -> partition the array
+    #pragma HLS ARRAY_PARTITION variable=match_units  complete dim=0
+
+    // one set of matching LUT per incoming track
+    matching_LUTs mluts[N_TRK_SECTORS];
+    #pragma HLS ARRAY_PARTITION variable=mluts  complete
+
+    // and output buffer decoupled from the matcher - so that the data is persistent
+    static tkmu_t     out_buffer [N_TKMU];
+    static ap_uint<1> corr_done_buffer;
+    #pragma HLS ARRAY_PARTITION variable=out_buffer  complete
+    // connect output to the buffers
+    for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+    {
+        #pragma HLS unroll
+        out_tkmu[itkmu] = out_buffer[itkmu];
+    }
+    corr_done = corr_done_buffer;
+
+    // ----------------------------------------
+    // -- track processing --
+    // process tracks if the stream is full. FIXME: is it OK to check just the first stream if empty?
+    // Expect all streams to be filled in the same way, even with empty candidates
+    if (sending_trk)
+    {
+        // #ifndef __SYNTHESIS__
+        // std::cout << " ... TRACK STREAM HAS DATA, PROCESSING ..." << std::endl;
+        // #endif
+
+        for (size_t itrk = 0; itrk < N_TRK_SECTORS; ++itrk)
+        {
+            #pragma HLS unroll
+            
+            // track_t trk = in_tracks[itrk].read();
+            track_t trk = in_tracks[itrk];
+
+            // std::cout << " ....... sector " << itrk << " with track pt = " << trk.pt.to_uint64() << " theta = " << trk.theta.to_uint64() << " phi = " << trk.phi.to_uint64() << std::endl;
+
+            // build the matching LUT address
+            ap_uint<4> addr_th;
+            ap_uint<9> addr_pt;
+
+            ap_uint<TRK_THETA_W_SIZE> abs_trk_theta = trk.theta;
+            // ap_int<TRK_THETA_W_SIZE> abs_trk_theta = get_trk_theta(tracks[itrk]);
+            // if (abs_trk_theta < 0)
+            //     abs_trk_theta *= -1;
+
+            // FIXME; these boundaries are just to write the code
+            // need to change with the actual bin boundaries
+            // 5 bits (+sign) -> 32 values and I use 10 bins
+            
+            if      (abs_trk_theta < 10) addr_th = 0;
+            else if (abs_trk_theta < 12) addr_th = 1;
+            else if (abs_trk_theta < 14) addr_th = 2;
+            else if (abs_trk_theta < 16) addr_th = 3;
+            else if (abs_trk_theta < 18) addr_th = 4;
+            else if (abs_trk_theta < 20) addr_th = 5;
+            else if (abs_trk_theta < 22) addr_th = 6;
+            else if (abs_trk_theta < 24) addr_th = 7;
+            else if (abs_trk_theta < 26) addr_th = 8;
+            else                         addr_th = 9;
+
+            addr_pt = trk.pt; // since I express pt in 0.5 steps this is easy, the address is the pt
+
+            ap_uint<10> this_phi_low_bound    = mluts[itrk].phi_low_bounds    [addr_th][addr_pt];
+            ap_uint<10> this_phi_high_bound   = mluts[itrk].phi_high_bounds   [addr_th][addr_pt];
+            ap_uint<10> this_theta_low_bound  = mluts[itrk].theta_low_bounds  [addr_th][addr_pt];
+            ap_uint<10> this_theta_high_bound = mluts[itrk].theta_high_bounds [addr_th][addr_pt];
+
+            for (size_t imatcher = 0; imatcher < N_TKMU; ++imatcher)
+            {
+                #pragma HLS unroll
+                match_units[itrk][imatcher].process(
+                    trk,
+                    this_phi_low_bound,
+                    this_phi_high_bound,
+                    this_theta_low_bound,
+                    this_theta_high_bound
+                );
+            }
+        }
+
+        corr_done_buffer = 0;
+    }
+
+    // ----------------------------------------
+    // -- output and mu processing --
+    
+    // if stream is empty, flush out TkMu and reinit with new muons
+    else // re-init everything
+    {
+        // #ifndef __SYNTHESIS__
+        // std::cout << " ... TRACK STREAM IS EMPTY, MAKING CORRESPONDING OPS ..." << std::endl;
+        // #endif
+
+        // FIXME: implement sorting across various matchers here here
+        // std::cout << "nel blocco mu" << std::endl;
+
+        // copy the TkMu to the output buffers
+        for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+        {
+            #pragma HLS unroll
+            out_buffer[itkmu] = match_units[0][itkmu].tkmu_; // FIXME: sorting
+            corr_done_buffer = 1;
+
+        }
+
+        // reinitialize everything
+        for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
+        {
+            for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+            {
+                #pragma HLS unroll
+                match_units[isec][itkmu].init(in_muons[itkmu]); /// NOTE!! This implicitly requires N_TKMU = N_MU
+            }
+        }
+    }
+}
+
+
 
 
 void passthrough (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint<TKMU_W_SIZE*N_TKMU> &out_info,
@@ -944,7 +1090,356 @@ void passthrough (ap_uint<TRK_W_SIZE*N_TRK + MU_W_SIZE*N_MU> in_info, ap_uint<TK
 }
 
 
-// void BRAM_to_corr (ap_uint<MTF7_BRAM_SIZE> in_info, ap_uint<MTF7_BRAM_SIZE> &out_info)
-// {
+void BRAM_to_corr (ap_uint<MTF7_BRAM_SIZE> in_info, ap_uint<1> in_muons, ap_uint<MTF7_BRAM_SIZE> &out_info, ap_uint<1> &out_valid)
+{
+    // #pragma HLS dataflow
+
+    // first word: the muon data
+    muon_t muons[N_MU];
+
+    // the destination array
+    tkmu_t tkmus[N_TKMU];
+
+    // hls::stream<track_t> tracks[N_TRK_SECTORS]  = {
+    //     hls::stream<track_t>("SECTOR_1"),
+    //     hls::stream<track_t>("SECTOR_2"),
+    //     hls::stream<track_t>("SECTOR_3"),
+    //     hls::stream<track_t>("SECTOR_4"),
+    //     hls::stream<track_t>("SECTOR_5"),
+    //     hls::stream<track_t>("SECTOR_6"),
+    //     hls::stream<track_t>("SECTOR_7"),
+    //     hls::stream<track_t>("SECTOR_8"),
+    //     hls::stream<track_t>("SECTOR_9")
+    // };
     
-// }
+    static hls::stream<track_t> tracks[N_TRK_SECTORS];
+
+    #pragma HLS ARRAY_PARTITION variable=muons   complete
+    #pragma HLS ARRAY_PARTITION variable=tracks  complete
+    #pragma HLS ARRAY_PARTITION variable=tkmus   complete
+    // hls::stream<track_t> tra("SECTOR_1");
+
+    // #pragma HLS stream variable=tracks[0]
+    // #pragma HLS stream variable=tracks[1]
+    // #pragma HLS stream variable=tracks[2]
+    // #pragma HLS stream variable=tracks[3]
+    // #pragma HLS stream variable=tracks[4]
+    // #pragma HLS stream variable=tracks[5]
+    // #pragma HLS stream variable=tracks[6]
+    // #pragma HLS stream variable=tracks[7]
+    // #pragma HLS stream variable=tracks[9]
+
+    // static size_t info_counter = 0; // every 1 + N_TRK_PER_SECTOR it's a new event
+
+    // if (info_counter == 0)
+    if (in_muons == 1)
+    {    
+        // convert the word into a muon
+        // ap_uint<MTF7_BRAM_SIZE> all_mu_word = in_bram[0 + in_offset];
+        for (size_t imu = 0; imu < N_MU; ++imu)
+        {
+          #pragma HLS unroll
+
+          ap_uint<MU_W_SIZE> mu_word = in_info.range((imu+1)*MU_W_SIZE-1, imu*MU_W_SIZE);
+          muons[imu].pt         = get_mu_pt(mu_word);
+          muons[imu].theta      = get_mu_theta(mu_word);
+          muons[imu].theta_sign = get_mu_theta_sign(mu_word);
+          muons[imu].phi        = get_mu_phi(mu_word);
+        }
+
+        // for (size_t imu = 0; imu < N_MU; ++imu)
+        // {
+        //   std::cout << " ... mu " << imu
+        //             << " pt = " << muons[imu].pt.to_uint64()
+        //             << " theta = " << muons[imu].theta.to_uint64()
+        //             << " theta_sign = " << muons[imu].theta_sign.to_uint64()
+        //             << " phi = " << muons[imu].phi.to_uint64() << std::endl;
+        // }
+    }
+
+    
+    else
+    {
+        // second and following word: these are the tracks
+        // each memory address carries one incoming set of track for a clk cycle
+        // NOTE: does not necessarily has to be one BRAM address / bx
+        // at the testbench level, multiple addresses can be combined if more bits are needed
+
+        // printf("NUMBER OF TRACK: %i\n", N_TRK);
+
+        // first round: inject ths muons using empty track streasm
+        // std::cout << ".... injecting muons" << std::endl;
+        // correlator_stream(muons, tracks, tkmus);
+
+        // std::cout << " ---------- track TMT number " << itrk << " ------------" << std::endl;
+
+        // for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
+        // {
+        //     // PATCH: set properties of tracks by hand
+        //     // to be read from the input pattern file
+        //     track_t this_trk;
+        //     this_trk.pt    = 100*itrk + isec;
+        //     this_trk.theta = 100*itrk + isec + 1;
+        //     this_trk.phi   = 100*itrk + isec + 2;
+        //     this_trk.nstubs = 5;
+        //     this_trk.chisq  = 30;
+        //     tracks[isec].write(this_trk);
+        // }
+
+        // ap_uint<MTF7_BRAM_SIZE> all_trk_word = in_bram[1 + itrk + in_offset];
+
+        for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
+        {
+          #pragma HLS unroll
+          // #pragma HLS dataflow
+
+          ap_uint<TRK_W_SIZE> trk_word = in_info.range((isec+1)*TRK_W_SIZE-1, isec*TRK_W_SIZE);
+          track_t this_trk;
+          this_trk.pt         = get_trk_pt(trk_word);
+          this_trk.theta      = get_trk_theta(trk_word);
+          this_trk.theta_sign = get_trk_theta_sign(trk_word);
+          this_trk.phi        = get_trk_phi(trk_word);
+          this_trk.charge     = get_trk_charge(trk_word);
+          this_trk.chisq      = get_trk_chisq(trk_word);
+          this_trk.nstubs     = get_trk_nstubs(trk_word);
+
+          // std::cout << " ... tracks - sector = " << isec << " tmt = " << itrk
+          //           << " pt = "         << this_trk.pt.to_uint64()
+          //           << " theta = "      << this_trk.theta.to_uint64()
+          //           << " theta_sign = " << this_trk.theta_sign.to_uint64()
+          //           << " phi = "        << this_trk.phi.to_uint64()
+          //           << " charge = "     << this_trk.charge.to_uint64()
+          //           << " chisq = "      << this_trk.chisq.to_uint64()
+          //           << " nstubs = "     << this_trk.nstubs.to_uint64()
+          //           << std::endl;
+
+          tracks[isec].write(this_trk);
+        }
+
+        // std::cout << ".... running correlator on a new set of tracks" << std::endl;
+    }
+
+    ap_uint<1> corr_done;
+    out_valid = corr_done; // connect corr_done to out_valid
+    correlator_stream(muons, tracks, tkmus, corr_done);
+    // info_counter == 1 + N_TRK_PER_SEC -1 ? info_counter = 0 : ++info_counter;
+
+    // std::cout << "CORR DONE " << corr_done.to_uint() << std::endl;
+    // for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+    // {
+    //   std::cout << " ... tkmu " << itkmu
+    //             << " pt = " << tkmus[itkmu].pt.to_uint64()
+    //             << " theta = " << tkmus[itkmu].theta.to_uint64()
+    //             << " theta_sign = " << tkmus[itkmu].theta_sign.to_uint64()
+    //             << " phi = " << tkmus[itkmu].phi.to_uint64() << std::endl;
+    // }
+
+
+    /// repack the output in out_bram and write it to file in output
+    // ap_uint<MTF7_BRAM_SIZE> out_info;
+    if (corr_done)
+    // if (true)
+    {
+        // for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+        // {
+        //   std::cout << " ... tkmu " << itkmu
+        //             << " pt = " << tkmus[itkmu].pt.to_uint64()
+        //             << " theta = " << tkmus[itkmu].theta.to_uint64()
+        //             << " theta_sign = " << tkmus[itkmu].theta_sign.to_uint64()
+        //             << " phi = " << tkmus[itkmu].phi.to_uint64() << std::endl;
+        // }
+
+        for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+        {
+          #pragma HLS unroll
+          out_info.range(TKMU_W_SIZE*(itkmu+1)-1, TKMU_W_SIZE*itkmu) = build_tkmu_word(tkmus[itkmu]);
+        }
+    }
+    
+    // out_bram[itest] = out_info;
+
+}
+
+
+
+
+
+void BRAM_to_corr_nostream (ap_uint<MTF7_BRAM_SIZE> in_info, ap_uint<1> in_muons, ap_uint<MTF7_BRAM_SIZE> &out_info, ap_uint<1> &out_valid)
+{
+    // #pragma HLS dataflow
+
+    // printf("e poi ... %0x\n",in_info.range(31,0).to_uint64() );
+
+    // std::cout << " ........ inside corr ||| "
+    //         << " in_info_last : " << std::hex << in_info.range(63,0).to_uint64()
+    //         << " is_muons : " << in_muons.to_uint()
+    //         << " out_info_last : " << std::hex << out_info.range(63,0).to_uint64()
+    //         << " out_valid : " << out_valid 
+    //         << std::endl;
+
+
+    // first word: the muon data
+    muon_t muons[N_MU];
+
+    // the destination array
+    tkmu_t tkmus[N_TKMU];
+
+    // hls::stream<track_t> tracks[N_TRK_SECTORS]  = {
+    //     hls::stream<track_t>("SECTOR_1"),
+    //     hls::stream<track_t>("SECTOR_2"),
+    //     hls::stream<track_t>("SECTOR_3"),
+    //     hls::stream<track_t>("SECTOR_4"),
+    //     hls::stream<track_t>("SECTOR_5"),
+    //     hls::stream<track_t>("SECTOR_6"),
+    //     hls::stream<track_t>("SECTOR_7"),
+    //     hls::stream<track_t>("SECTOR_8"),
+    //     hls::stream<track_t>("SECTOR_9")
+    // };
+    
+    track_t tracks[N_TRK_SECTORS];
+
+    #pragma HLS ARRAY_PARTITION variable=muons   complete
+    #pragma HLS ARRAY_PARTITION variable=tracks  complete
+    #pragma HLS ARRAY_PARTITION variable=tkmus   complete
+    // hls::stream<track_t> tra("SECTOR_1");
+
+    // #pragma HLS stream variable=tracks[0]
+    // #pragma HLS stream variable=tracks[1]
+    // #pragma HLS stream variable=tracks[2]
+    // #pragma HLS stream variable=tracks[3]
+    // #pragma HLS stream variable=tracks[4]
+    // #pragma HLS stream variable=tracks[5]
+    // #pragma HLS stream variable=tracks[6]
+    // #pragma HLS stream variable=tracks[7]
+    // #pragma HLS stream variable=tracks[9]
+
+    // static size_t info_counter = 0; // every 1 + N_TRK_PER_SECTOR it's a new event
+
+    // if (info_counter == 0)
+    if (in_muons == 1)
+    {    
+        // convert the word into a muon
+        // ap_uint<MTF7_BRAM_SIZE> all_mu_word = in_bram[0 + in_offset];
+        for (size_t imu = 0; imu < N_MU; ++imu)
+        {
+          #pragma HLS unroll
+
+          ap_uint<MU_W_SIZE> mu_word = in_info.range((imu+1)*MU_W_SIZE-1, imu*MU_W_SIZE);
+          muons[imu].pt         = get_mu_pt(mu_word);
+          muons[imu].theta      = get_mu_theta(mu_word);
+          muons[imu].theta_sign = get_mu_theta_sign(mu_word);
+          muons[imu].phi        = get_mu_phi(mu_word);
+        }
+
+        // for (size_t imu = 0; imu < N_MU; ++imu)
+        // {
+        //   std::cout << " ... mu " << imu
+        //             << " pt = " << muons[imu].pt.to_uint64()
+        //             << " theta = " << muons[imu].theta.to_uint64()
+        //             << " theta_sign = " << muons[imu].theta_sign.to_uint64()
+        //             << " phi = " << muons[imu].phi.to_uint64() << std::endl;
+        // }
+    }
+
+    
+    else
+    {
+        // second and following word: these are the tracks
+        // each memory address carries one incoming set of track for a clk cycle
+        // NOTE: does not necessarily has to be one BRAM address / bx
+        // at the testbench level, multiple addresses can be combined if more bits are needed
+
+        // printf("NUMBER OF TRACK: %i\n", N_TRK);
+
+        // first round: inject ths muons using empty track streasm
+        // std::cout << ".... injecting muons" << std::endl;
+        // correlator_stream(muons, tracks, tkmus);
+
+        // std::cout << " ---------- track TMT number " << itrk << " ------------" << std::endl;
+
+        // for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
+        // {
+        //     // PATCH: set properties of tracks by hand
+        //     // to be read from the input pattern file
+        //     track_t this_trk;
+        //     this_trk.pt    = 100*itrk + isec;
+        //     this_trk.theta = 100*itrk + isec + 1;
+        //     this_trk.phi   = 100*itrk + isec + 2;
+        //     this_trk.nstubs = 5;
+        //     this_trk.chisq  = 30;
+        //     tracks[isec].write(this_trk);
+        // }
+
+        // ap_uint<MTF7_BRAM_SIZE> all_trk_word = in_bram[1 + itrk + in_offset];
+
+        for (size_t isec = 0; isec < N_TRK_SECTORS; ++isec)
+        {
+          #pragma HLS unroll
+          // #pragma HLS dataflow
+
+          ap_uint<TRK_W_SIZE> trk_word = in_info.range((isec+1)*TRK_W_SIZE-1, isec*TRK_W_SIZE);
+          track_t this_trk;
+          this_trk.pt         = get_trk_pt(trk_word);
+          this_trk.theta      = get_trk_theta(trk_word);
+          this_trk.theta_sign = get_trk_theta_sign(trk_word);
+          this_trk.phi        = get_trk_phi(trk_word);
+          this_trk.charge     = get_trk_charge(trk_word);
+          this_trk.chisq      = get_trk_chisq(trk_word);
+          this_trk.nstubs     = get_trk_nstubs(trk_word);
+
+          // std::cout << " ... tracks - sector = " << isec << " tmt = " << itrk
+          //           << " pt = "         << this_trk.pt.to_uint64()
+          //           << " theta = "      << this_trk.theta.to_uint64()
+          //           << " theta_sign = " << this_trk.theta_sign.to_uint64()
+          //           << " phi = "        << this_trk.phi.to_uint64()
+          //           << " charge = "     << this_trk.charge.to_uint64()
+          //           << " chisq = "      << this_trk.chisq.to_uint64()
+          //           << " nstubs = "     << this_trk.nstubs.to_uint64()
+          //           << std::endl;
+
+          tracks[isec] = this_trk;
+        }
+
+        // std::cout << ".... running correlator on a new set of tracks" << std::endl;
+    }
+
+    // ap_uint<1> corr_done;
+    // out_valid = corr_done; // connect corr_done to out_valid
+    correlator_nostream(muons, tracks, !in_muons, tkmus, out_valid);
+    // info_counter == 1 + N_TRK_PER_SEC -1 ? info_counter = 0 : ++info_counter;
+
+    // std::cout << "CORR DONE " << corr_done.to_uint() << std::endl;
+    // for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+    // {
+    //   std::cout << " ... tkmu " << itkmu
+    //             << " pt = " << tkmus[itkmu].pt.to_uint64()
+    //             << " theta = " << tkmus[itkmu].theta.to_uint64()
+    //             << " theta_sign = " << tkmus[itkmu].theta_sign.to_uint64()
+    //             << " phi = " << tkmus[itkmu].phi.to_uint64() << std::endl;
+    // }
+
+
+    /// repack the output in out_bram and write it to file in output
+    // ap_uint<MTF7_BRAM_SIZE> out_info;
+    if (out_valid)
+    // if (true)
+    {
+        // for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+        // {
+        //   std::cout << " ... tkmu " << itkmu
+        //             << " pt = " << tkmus[itkmu].pt.to_uint64()
+        //             << " theta = " << tkmus[itkmu].theta.to_uint64()
+        //             << " theta_sign = " << tkmus[itkmu].theta_sign.to_uint64()
+        //             << " phi = " << tkmus[itkmu].phi.to_uint64() << std::endl;
+        // }
+
+        for (size_t itkmu = 0; itkmu < N_TKMU; ++itkmu)
+        {
+          #pragma HLS unroll
+          out_info.range(TKMU_W_SIZE*(itkmu+1)-1, TKMU_W_SIZE*itkmu) = build_tkmu_word(tkmus[itkmu]);
+        }
+    }
+    
+    // out_bram[itest] = out_info;
+
+}
